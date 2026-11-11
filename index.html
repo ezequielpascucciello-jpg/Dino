@@ -1046,7 +1046,8 @@ function makeP2P(){
     const peers=new Map(),conns=new Map(),myPres={};let peer;
     const selfId=()=>peer&&peer.id;
     const snapshot=()=>{const a=[];for(const [id,pr] of peers)a.push({peer:id,sameTab:id===selfId(),isMe:id===selfId(),presence:pr,guest:false,kind:'viewer',by:null});return a};
-    const emit=left=>{lastSnap=snapshot();for(const f of listeners)try{f({peers:lastSnap,joined:[],left:left||[],updated:[]})}catch(e){}};
+    let lastSig='';
+    const emit=left=>{const sig=JSON.stringify([...peers]);if(sig===lastSig&&!(left&&left.length))return;lastSig=sig;lastSnap=snapshot();for(const f of listeners)try{f({peers:lastSnap,joined:[],left:left||[],updated:[]})}catch(e){}};
     const fail=(c,m)=>{if(closed)return;closed=true;clearInterval(timer);for(const f of errL)try{f({code:c,message:m})}catch(e){}try{peer.destroy()}catch(e){}};
     const api={name,
       presence(o){for(const k in o){if(o[k]===null)delete myPres[k];else myPres[k]=o[k]}
@@ -1254,16 +1255,16 @@ async function initNet(){
     roomNS=makeP2P();if(roomNS)netMode='p2p';
   }
   netState=roomNS?'ready':'unavailable';
-  if(state==='online')onlineScreen();
+  refreshOnline(true);
 }
 setTimeout(initNet,0);
 function onlineScreen(){
-  state='online';
+  state='online';onlineSig=netState+'|'+roomCode+'|'+myName+'|'+myColor+'|'+peersList.filter(p=>!p.sameTab).map(p=>{const s=p.presence||{};return p.peer+':'+cleanName(s.n)+':'+(s.c|0)+':'+s.s+':'+(s.L|0)}).join(',');
   const n=[el('h2',null,'🌐 Jugar online')];
   if(netState==='loading'){n.push(el('p',null,'Conectando…'));n.push(btn('← Volver','title','alt'));setOverlay(n);return}
   if(netState==='unavailable'){n.push(el('p',null,typeof makeP2P==='function'?'No se pudo cargar el modo online. Revisá la conexión a internet y volvé a abrir la página.':'El modo online no está disponible en esta vista. Abrí el juego desde Claude con tu cuenta (y tus amigos invitados a la página) para jugar juntos.'));n.push(btn('← Volver','title','alt'));setOverlay(n);return}
   n.push(el('p',null,'Tu nombre y color:'));
-  const inp=el('input','txt');inp.id='nameIn';inp.maxLength=14;inp.value=myName;inp.addEventListener('input',()=>{myName=cleanName(inp.value);try{localStorage.setItem('dinoName',myName)}catch(e){}netPresence()});n.push(inp);
+  const inp=el('input','txt');inp.id='nameIn';inp.maxLength=14;inp.value=myName;inp.enterKeyHint='done';inp.autocomplete='off';inp.addEventListener('keydown',e=>{if(e.key==='Enter')inp.blur()});inp.addEventListener('blur',()=>setTimeout(()=>refreshOnline(),50));inp.addEventListener('input',()=>{myName=cleanName(inp.value);try{localStorage.setItem('dinoName',myName)}catch(e){}netPresence()});n.push(inp);
   const sw=el('div','swatches');for(let i=0;i<6;i++){const s=el('button','sw'+(i===myColor?' on':''));s.style.background=TUNICS[i];s.style.boxShadow='inset 0 -8px 0 '+DINO_SKINS[i][2];s.addEventListener('click',()=>{myColor=i;try{localStorage.setItem('dinoColor',i)}catch(e){}netPresence();onlineScreen()});sw.appendChild(s)}n.push(sw);
   if(!room){
     n.push(btn('✨ Crear sala','create'));
@@ -1289,6 +1290,15 @@ function onlineScreen(){
   n.push(btn('← Volver','title','alt'));
   setOverlay(n);
 }
+let onlineSig='';
+function typing(){const a=document.activeElement;return a&&a.tagName==='INPUT'}
+function refreshOnline(force){
+  if(state!=='online')return;
+  const sig=netState+'|'+roomCode+'|'+myName+'|'+myColor+'|'+peersList.filter(p=>!p.sameTab).map(p=>{const s=p.presence||{};return p.peer+':'+cleanName(s.n)+':'+(s.c|0)+':'+s.s+':'+(s.L|0)}).join(',');
+  if(!force&&sig===onlineSig)return;
+  if(typing()){setTimeout(()=>refreshOnline(force),800);return}
+  onlineScreen();
+}
 function randCode(){const a='abcdefghjkmnpqrstuvwxyz23456789';let s='';for(let i=0;i<4;i++)s+=a[Math.floor(Math.random()*a.length)];return s}
 function createRoom(){joinRoom(randCode(),true)}
 async function joinRoom(code,host,tries){
@@ -1299,7 +1309,7 @@ async function joinRoom(code,host,tries){
   try{
     if(room){try{await room.leave()}catch(e){}room=null}
     room=await roomNS.join('dino-'+code,!!host);roomCode=code;
-    room.onPeers(ch=>{peersList=ch.peers.slice();for(const l of ch.left)peerView.delete(l.peer);if(state==='online')onlineScreen()},
+    room.onPeers(ch=>{peersList=ch.peers.slice();for(const l of ch.left)peerView.delete(l.peer);refreshOnline()},
       err=>{room=null;peersList=[];roomCode='';netErr=err&&err.code==='closed'?'La sala se cerró (quien la creó salió del juego)':'Se perdió la conexión con la sala';flash(netErr);if(state==='online')onlineScreen()});
     lastPres='';netPresence();
   }catch(e){room=null;const c=e&&e.code;

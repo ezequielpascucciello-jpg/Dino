@@ -10,9 +10,8 @@ html,body{margin:0;height:100%;background:radial-gradient(circle at 50% 30%,#2a1
 #game{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
 #stage{position:relative;box-shadow:0 12px 50px rgba(0,0,0,.7);border-radius:14px}
 canvas{display:block;width:100%;height:100%;border-radius:14px}
-#overlay{position:absolute;inset:0;display:flex;overflow-y:auto;background:rgba(10,7,4,.66);border-radius:14px;padding:14px;box-sizing:border-box;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+#overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:20;display:flex;overflow-y:auto;overflow-x:hidden;background:rgba(10,7,4,.8);padding:16px 14px calc(28px + env(safe-area-inset-bottom));box-sizing:border-box;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain}
 #overlay.hidden{display:none}
-.touch #overlay{position:fixed;inset:0;border-radius:0;z-index:10;background:rgba(10,7,4,.88);padding:16px 14px calc(24px + env(safe-area-inset-bottom));overscroll-behavior:contain}
 .panel{margin:auto;display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;max-width:640px;width:100%}
 .panel>div{display:contents}
 h1{font-size:clamp(28px,7vw,60px);margin:0;color:#ffd23f;text-shadow:0 4px 0 #a0430a,0 8px 20px rgba(0,0,0,.5);line-height:1}
@@ -46,6 +45,15 @@ p{margin:3px 0;font-size:clamp(12px,2.4vw,17px);opacity:.93;font-family:system-u
 .dot{width:14px;height:14px;border-radius:50%;flex:none}
 .pn{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl{opacity:.75;font-size:13px}
+#micBtn{position:absolute;top:8px;right:56px;width:40px;height:40px;border-radius:10px;border:none;background:rgba(0,0,0,.35);color:#fff;font-size:18px;cursor:pointer;display:none}
+#micBtn.on{background:rgba(122,201,67,.75)}
+#micBtn.muted{background:rgba(200,60,60,.6)}
+.invite{display:block !important;width:100%;max-width:440px;background:rgba(90,209,255,.12);border:2px solid rgba(90,209,255,.4);border-radius:12px;padding:8px;margin:4px 0}
+.invite .lnk{font-family:system-ui,sans-serif;font-size:12px;word-break:break-all;opacity:.85;user-select:text;-webkit-user-select:text}
+a.btn{display:inline-block;text-decoration:none}
+.btn.wa{background:#25d366;color:#053d1c;box-shadow:0 5px 0 #128c4a}
+.btn.voice{background:#5ad1ff;color:#04324a;box-shadow:0 5px 0 #1a7aa8}
+.btn.voice.on{background:#7ac943;color:#173b06;box-shadow:0 5px 0 #3f7a1a}
 #pauseBtn{position:absolute;top:8px;right:8px;width:40px;height:40px;border-radius:10px;border:none;background:rgba(0,0,0,.35);color:#fff;font-size:18px;cursor:pointer;display:none}
 #controls{position:fixed;left:0;right:0;bottom:0;display:none;justify-content:space-between;align-items:flex-end;padding:12px 10px calc(14px + env(safe-area-inset-bottom));pointer-events:none;z-index:5}
 .touch #controls.show{display:flex}
@@ -65,7 +73,8 @@ p{margin:3px 0;font-size:clamp(12px,2.4vw,17px);opacity:.93;font-family:system-u
 <script async src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" onerror="var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';document.head.appendChild(s)"></script>
 </head>
 <body>
-<div id="game"><div id="stage"><canvas id="c"></canvas><button id="pauseBtn" aria-label="Pausa">❚❚</button><div id="overlay"></div></div></div>
+<div id="game"><div id="stage"><canvas id="c"></canvas><button id="pauseBtn" aria-label="Pausa">❚❚</button><button id="micBtn" aria-label="Micrófono">🎤</button></div></div>
+<div id="overlay" class="hidden"></div>
 <div id="controls">
   <div class="pad"><div class="cbtn" id="bL">◀</div><div class="cbtn" id="bR">▶</div></div>
   <div class="rbtns"><div class="cbtn sm off" id="bA">🗡</div><div class="cbtn sm off" id="bP">✦</div><div class="cbtn jump" id="bJ">⤒</div></div>
@@ -1049,7 +1058,7 @@ function makeP2P(){
     let lastSig='';
     const emit=left=>{const sig=JSON.stringify([...peers]);if(sig===lastSig&&!(left&&left.length))return;lastSig=sig;lastSnap=snapshot();for(const f of listeners)try{f({peers:lastSnap,joined:[],left:left||[],updated:[]})}catch(e){}};
     const fail=(c,m)=>{if(closed)return;closed=true;clearInterval(timer);for(const f of errL)try{f({code:c,message:m})}catch(e){}try{peer.destroy()}catch(e){}};
-    const api={name,
+    const api={name,isHost:!!host,hostId:PREFIX+code,myId:()=>selfId(),get peerObj(){return peer},
       presence(o){for(const k in o){if(o[k]===null)delete myPres[k];else myPres[k]=o[k]}
         if(selfId())peers.set(selfId(),Object.assign({},myPres));
         if(!host&&conn&&conn.open)try{conn.send({t:'p',d:myPres})}catch(e){}
@@ -1057,17 +1066,17 @@ function makeP2P(){
       onPeers(f,err){listeners.push(f);if(err)errL.push(err);setTimeout(()=>{lastSnap=snapshot();try{f({peers:lastSnap,joined:lastSnap,left:[],updated:[]})}catch(e){}},0);return()=>{listeners=listeners.filter(x=>x!==f)}},
       peers(){return lastSnap},connected(){return !closed},
       leave(){closed=true;clearInterval(timer);try{peer.destroy()}catch(e){}return Promise.resolve()}};
-    const done=()=>{ok=true;resolve(api)};
+    const done=()=>{ok=true;peer.on('call',c=>{if(typeof window.__onVoiceCall==='function')window.__onVoiceCall(c);else try{c.close()}catch(e){}});resolve(api)};
     const bad=e=>{if(!ok){try{peer.destroy()}catch(_){}reject(e)}};
     if(host){
       peer=new window.Peer(PREFIX+code,CFG);
       peer.on('open',id=>{peers.set(id,Object.assign({},myPres));done();
         timer=setInterval(()=>{if(closed)return;const all=[];for(const [id,pr] of peers)all.push([id,pr]);
-          const msg={t:'all',p:all};for(const c of conns.values())if(c.open)try{c.send(msg)}catch(e){}emit()},80)});
+          const msg={t:'all',p:all},now=Date.now();for(const c of [...conns.values()]){if(now-c._rx>9000){conns.delete(c.peer);peers.delete(c.peer);try{c.close()}catch(e){}emit([{peer:c.peer}]);continue}if(c.open)try{c.send(msg)}catch(e){}}emit()},80)});
       peer.on('connection',c=>{
         if(conns.size>=7){c.on('open',()=>{try{c.send({t:'full'});setTimeout(()=>c.close(),300)}catch(e){}});return}
-        conns.set(c.peer,c);
-        c.on('data',m=>{if(m&&m.t==='p'&&m.d&&typeof m.d==='object'&&JSON.stringify(m.d).length<2000)peers.set(c.peer,m.d)});
+        conns.set(c.peer,c);c._rx=Date.now();
+        c.on('data',m=>{c._rx=Date.now();if(m&&m.t==='p'&&m.d&&typeof m.d==='object'&&JSON.stringify(m.d).length<2000)peers.set(c.peer,m.d)});
         const gone=()=>{conns.delete(c.peer);if(peers.delete(c.peer))emit([{peer:c.peer}])};
         c.on('close',gone);c.on('error',gone)});
       peer.on('error',e=>{if(e.type==='unavailable-id')bad({code:'taken'});else if(!ok)bad({code:'net',message:e.type})});
@@ -1077,7 +1086,8 @@ function makeP2P(){
       const to=setTimeout(()=>bad({code:'notfound'}),15000);
       peer.on('open',()=>{
         conn=peer.connect(PREFIX+code,{serialization:'json',reliable:true});
-        conn.on('open',()=>{clearTimeout(to);peers.set(peer.id,Object.assign({},myPres));try{conn.send({t:'p',d:myPres})}catch(e){}done()});
+        conn.on('open',()=>{clearTimeout(to);peers.set(peer.id,Object.assign({},myPres));try{conn.send({t:'p',d:myPres})}catch(e){}done();let rx=Date.now();conn.on('data',()=>{rx=Date.now()});
+          timer=setInterval(()=>{if(closed)return;if(Date.now()-rx>8000){fail('closed','La sala se cerró');return}try{conn.send({t:'p',d:myPres})}catch(e){}},2000)});
         conn.on('data',m=>{
           if(m&&m.t==='full'){clearTimeout(to);bad({code:'full'});return}
           if(!m||m.t!=='all'||!Array.isArray(m.p))return;
@@ -1091,6 +1101,57 @@ function makeP2P(){
     }
   })}};
 }
+
+/* ================= CHAT DE VOZ (solo versión web con PeerJS) ================= */
+const Voice={mic:false,muted:false,listen:true,stream:null,out:new Map(),inc:new Map(),audios:new Map(),silent:null,needTap:false,
+  supported(){return !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&room&&room.peerObj)},
+  silentStream(){
+    if(this.silent)return this.silent;
+    try{if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();const d=ac.createMediaStreamDestination();this.silent=d.stream}catch(e){this.silent=null}
+    return this.silent;
+  },
+  async enableMic(){
+    if(!this.supported()){flash('La voz no está disponible acá');return false}
+    try{this.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false})}
+    catch(e){flash('No se pudo usar el micrófono (revisá el permiso)');refreshVoiceUI();return false}
+    this.mic=true;this.muted=false;this.unlockAudio();this.sync();refreshVoiceUI();lastPres='';netPresence();flash('🎤 Micrófono activado');return true;
+  },
+  disableMic(){
+    if(this.stream)for(const t of this.stream.getTracks())try{t.stop()}catch(e){}
+    this.stream=null;this.mic=false;this.muted=false;
+    for(const c of this.out.values())try{c.close()}catch(e){}
+    this.out.clear();refreshVoiceUI();lastPres='';netPresence();
+  },
+  toggleMute(){if(!this.stream)return;this.muted=!this.muted;for(const t of this.stream.getAudioTracks())t.enabled=!this.muted;refreshVoiceUI();lastPres='';netPresence()},
+  setListen(v){this.listen=v;for(const a of this.audios.values())a.muted=!v;this.unlockAudio();refreshVoiceUI()},
+  unlockAudio(){this.needTap=false;for(const a of this.audios.values()){const pr=a.play();if(pr&&pr.catch)pr.catch(()=>{this.needTap=true})}try{if(ac&&ac.state==='suspended')ac.resume()}catch(e){}},
+  sync(){
+    if(!room||!room.peerObj)return;
+    const ids=new Set(peersList.filter(p=>!p.sameTab).map(p=>p.peer));
+    if(this.mic&&this.stream){
+      for(const id of ids)if(!this.out.has(id)){
+        try{const c=room.peerObj.call(id,this.stream);if(!c)continue;this.out.set(id,c);
+          const drop=()=>{if(this.out.get(id)===c)this.out.delete(id)};c.on('close',drop);c.on('error',drop)}catch(e){}
+      }
+    }
+    for(const [id,c] of [...this.out])if(!ids.has(id)){try{c.close()}catch(e){}this.out.delete(id)}
+    for(const [id,c] of [...this.inc])if(!ids.has(id)){try{c.close()}catch(e){}this.inc.delete(id);this.dropAudio(id)}
+  },
+  incoming(call){
+    const id=call.peer;
+    try{call.answer(this.silentStream()||undefined)}catch(e){try{call.answer()}catch(_){}}
+    const prev=this.inc.get(id);if(prev&&prev!==call)try{prev.close()}catch(e){}
+    this.inc.set(id,call);
+    call.on('stream',s=>{let a=this.audios.get(id);
+      if(!a){a=document.createElement('audio');a.autoplay=true;a.setAttribute('playsinline','');document.body.appendChild(a);this.audios.set(id,a)}
+      a.srcObject=s;a.muted=!this.listen;const pr=a.play();if(pr&&pr.catch)pr.catch(()=>{this.needTap=true;refreshVoiceUI()})});
+    const end=()=>{if(this.inc.get(id)===call){this.inc.delete(id);this.dropAudio(id)}};
+    call.on('close',end);call.on('error',end);
+  },
+  dropAudio(id){const a=this.audios.get(id);if(a){try{a.srcObject=null;a.remove()}catch(e){}this.audios.delete(id)}},
+  reset(){this.disableMic();for(const c of this.inc.values())try{c.close()}catch(e){}this.inc.clear();for(const id of [...this.audios.keys()])this.dropAudio(id)}
+};
+window.__onVoiceCall=c=>Voice.incoming(c);
 
 /* ================= AUDIO ================= */
 let ac=null,muted=false;
@@ -1143,7 +1204,6 @@ const pauseBtn=document.getElementById('pauseBtn'),controls=document.getElementB
 const isTouch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
 if(isTouch)document.body.classList.add('touch');
 function resize(){
-  const ae=document.activeElement;if(ae&&ae.tagName==='INPUT')return;
   const portrait=isTouch&&innerHeight>innerWidth;
   const vw=innerWidth,vh=innerHeight-(portrait?150:0);
   const s=Math.min(vw/W,vh/H)*0.98,w=Math.floor(W*s),h=Math.floor(H*s);
@@ -1157,9 +1217,10 @@ addEventListener('resize',resize);resize();
 
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
 function btn(label,action,cls){const b=el('button','btn'+(cls?' '+cls:''),label);b.dataset.a=action;return b}
-function setOverlay(nodes){ov.innerHTML='';const p=el('div','panel');for(const n of nodes)if(n)p.appendChild(typeof n==='string'?htmlNode(n):n);ov.appendChild(p);ov.classList.remove('hidden');pauseBtn.style.display='none';controls.classList.remove('show');ov.scrollTop=0}
+function setOverlay(nodes){ov.innerHTML='';const p=el('div','panel');for(const n of nodes)if(n)p.appendChild(typeof n==='string'?htmlNode(n):n);ov.appendChild(p);ov.classList.remove('hidden');pauseBtn.style.display='none';controls.classList.remove('show');ov.scrollTop=0;if(typeof syncMicBtn==='function')syncMicBtn()}
 function htmlNode(s){const d=document.createElement('div');d.innerHTML=s;return d}
-function hideOverlay(){ov.classList.add('hidden');pauseBtn.style.display='block';controls.classList.add('show')}
+function hideOverlay(){ov.classList.add('hidden');pauseBtn.style.display='block';controls.classList.add('show');syncMicBtn()}
+function selectLink(){const p=ov.querySelector('.lnk');if(!p)return;try{const r=document.createRange();r.selectNodeContents(p);const s=getSelection();s.removeAllRanges();s.addRange(r)}catch(e){}flash('Mantené apretado el link para copiarlo')}
 const HELP='<p class="desk">Mover <span class="keys">← →</span> · Saltar/volar <span class="keys">Espacio</span> · Arma <span class="keys">Z</span> · Poder <span class="keys">X</span> · Pausa <span class="keys">P</span></p><p class="mob">◀ ▶ mover · ⤒ saltar/volar · 🗡 arma · ✦ poder</p>';
 
 function titleScreen(){
@@ -1218,7 +1279,7 @@ function onGameOver(){
   setOverlay(['<h2>¡Te atraparon!</h2>','<p class="big">'+(checkIdx>=0?'Volvés al último punto de control':'Volvés al inicio del nivel')+'</p>',btn('Reintentar','retry'),btn('Niveles','levels','alt')]);
 }
 function pause(){if(state!=='play')return;state='paused';netPresence();
-  setOverlay(['<h2>Pausa</h2>',HELP,btn('Continuar','resume'),btn('Reiniciar nivel','relevel','alt'),btn('Niveles','levels','alt'),btn(muted?'🔇 Sonido: no':'🔊 Sonido: sí','mute','alt')])}
+  setOverlay(['<h2>Pausa</h2>',HELP,btn('Continuar','resume'),btn('Reiniciar nivel','relevel','alt'),btn('Niveles','levels','alt'),btn(muted?'🔇 Sonido: no':'🔊 Sonido: sí','sound','alt')])}
 function act(a){
   tone(600,600,0.01,'sine',0.001);
   if(a.startsWith('play:')){carry={weapon:null,power:null};startLevel(+a.slice(5));return}
@@ -1230,11 +1291,18 @@ function act(a){
     case 'retry':startLevel(levelNum,true);break;
     case 'relevel':checkIdx=-1;startLevel(levelNum);break;
     case 'resume':state='play';hideOverlay();netPresence();break;
-    case 'mute':muted=!muted;state='play';pause();break;
     case 'online':onlineScreen();break;
     case 'create':createRoom();break;
     case 'join':{const i=document.getElementById('codeIn');joinRoom((i&&i.value||'').trim().toLowerCase());break}
+    case 'sound':muted=!muted;state='play';pause();break;
     case 'leave':leaveRoom();break;
+    case 'mic':if(hasVoice())Voice.enableMic();break;
+    case 'micoff':if(hasVoice())Voice.disableMic();break;
+    case 'mute':if(hasVoice()){if(state==='paused'){muted=!muted;state='play';pause()}else Voice.toggleMute()}break;
+    case 'listen':if(hasVoice())Voice.setListen(!Voice.listen);break;
+    case 'unlock':if(hasVoice()){Voice.unlockAudio();refreshOnline(true)}break;
+    case 'copy':{const l=inviteLink();const ok=()=>flash('Link copiado');try{navigator.clipboard.writeText(l).then(()=>{netErr='';const p=ov.querySelector('.lnk');if(p)p.textContent='✅ Copiado: '+l},()=>{selectLink()})}catch(e){selectLink()}break}
+    case 'share':try{navigator.share({title:'Dino Aventura',text:'🦖 ¡Jugá Dino Aventura conmigo! Entrá y te unís a mi partida:',url:inviteLink()}).catch(()=>{})}catch(e){}break;
   }
 }
 ov.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(b)act(b.dataset.a)});
@@ -1255,11 +1323,15 @@ async function initNet(){
     roomNS=makeP2P();if(roomNS)netMode='p2p';
   }
   netState=roomNS?'ready':'unavailable';
+  const inv=inviteFromURL();
+  if(inv&&netMode==='p2p'&&roomNS){state='online';onlineScreen();joinRoom(inv,false);return}
   refreshOnline(true);
 }
+function inviteFromURL(){try{const q=new URLSearchParams(location.search).get('sala')||(location.hash.match(/^#sala-([a-z0-9]{4})$/i)||[])[1];if(q&&/^[a-z0-9]{4}$/i.test(q))return q.toLowerCase()}catch(e){}return null}
 setTimeout(initNet,0);
+if(inviteFromURL()&&typeof makeP2P==='function'){setTimeout(()=>{if(state==='title'){state='online';onlineScreen()}},30)}
 function onlineScreen(){
-  state='online';onlineSig=netState+'|'+roomCode+'|'+myName+'|'+myColor+'|'+peersList.filter(p=>!p.sameTab).map(p=>{const s=p.presence||{};return p.peer+':'+cleanName(s.n)+':'+(s.c|0)+':'+s.s+':'+(s.L|0)}).join(',');
+  state='online';onlineSig=onlineSigOf();
   const n=[el('h2',null,'🌐 Jugar online')];
   if(netState==='loading'){n.push(el('p',null,'Conectando…'));n.push(btn('← Volver','title','alt'));setOverlay(n);return}
   if(netState==='unavailable'){n.push(el('p',null,typeof makeP2P==='function'?'No se pudo cargar el modo online. Revisá la conexión a internet y volvé a abrir la página.':'El modo online no está disponible en esta vista. Abrí el juego desde Claude con tu cuenta (y tus amigos invitados a la página) para jugar juntos.'));n.push(btn('← Volver','title','alt'));setOverlay(n);return}
@@ -1274,12 +1346,29 @@ function onlineScreen(){
     n.push(el('p','small',netMode==='p2p'?'Creá una sala y pasales el código a tus amigos (hasta 8 jugadores). Cada uno juega en su celular y se ven en el mismo nivel. La sala sigue abierta mientras quien la creó tenga el juego abierto.':'Creá una sala y pasales el código a tus amigos. Cada uno juega en su celular y se ven en el mismo nivel. Tus amigos tienen que tener acceso a esta página.'));
   }else{
     n.push(el('div','code-big','SALA '+roomCode.toUpperCase()));
-    n.push(el('p','small','Pasale este código a tus amigos. Elijan el mismo nivel para jugar juntos.'));
+    if(netMode==='p2p'){
+      const box=el('div','invite');box.appendChild(el('p',null,room.isHost?'Invitá a tus amigos con este link: entran directo a tu partida.':'Este es el link de la sala, por si querés invitar a alguien más:'));
+      box.appendChild(el('p','lnk',inviteLink()));
+      const r=el('div','row');
+      if(navigator.share)r.appendChild(btn('📤 Compartir','share'));
+      const wa=el('a','btn wa','WhatsApp');wa.href='https://wa.me/?text='+encodeURIComponent('🦖 ¡Jugá Dino Aventura conmigo! Entrá acá y te unís a mi partida: '+inviteLink());wa.target='_blank';wa.rel='noopener';r.appendChild(wa);
+      r.appendChild(btn('📋 Copiar','copy','alt'));box.appendChild(r);n.push(box);
+      if(!room.isHost){const h=hostPeer();const hs=h&&h.presence||{};
+        n.push(el('p','big',autoFollow?(h?'Esperando a que '+cleanName(hs.n)+' empiece un nivel… entrás automáticamente':'Conectando con el anfitrión…'):'Tocá "Ir a su nivel" para jugar juntos'))}
+      if(hasVoice()&&Voice.supported()){
+        const vr=el('div','row');
+        if(!Voice.mic)vr.appendChild(btn('🎤 Activar micrófono','mic','voice'));
+        else{vr.appendChild(btn(Voice.muted?'🔇 Micrófono silenciado':'🎙️ Micrófono activo','mute','voice'+(Voice.muted?'':' on')));vr.appendChild(btn('Apagar mic','micoff','alt'))}
+        vr.appendChild(btn(Voice.listen?'🔊 Escuchar: sí':'🔈 Escuchar: no','listen','alt'));n.push(vr);
+        if(Voice.needTap)n.push(btn('🔊 Tocá para escuchar a tus amigos','unlock','voice'));
+        n.push(el('p','small','Chat de voz: activá el micrófono para que te escuchen. Usá auriculares para que no haya eco.'));
+      }
+    }else n.push(el('p','small','Pasale este código a tus amigos. Elijan el mismo nivel para jugar juntos.'));
     const list=el('div','plist');
     const others=peersList.filter(p=>!p.sameTab);
-    const me=el('div','prow');const dot=el('span','dot');dot.style.background=TUNICS[myColor];me.appendChild(dot);me.appendChild(el('span','pn',myName+' (vos)'));list.appendChild(me);
+    const me=el('div','prow');const dot=el('span','dot');dot.style.background=TUNICS[myColor];me.appendChild(dot);me.appendChild(el('span','pn',(room.isHost?'👑 ':'')+myName+' (vos)'+(hasVoice()&&Voice.mic&&!Voice.muted?' 🎙️':'')));list.appendChild(me);
     for(const pr of others){const ps=pr.presence||{};const row=el('div','prow');const d=el('span','dot');d.style.background=TUNICS[(ps.c|0)%6];row.appendChild(d);
-      row.appendChild(el('span','pn',cleanName(ps.n)+(pr.guest?' (invitado)':'')));
+      row.appendChild(el('span','pn',(room.hostId===pr.peer?'👑 ':'')+cleanName(ps.n)+(pr.guest?' (invitado)':'')+(ps.v?' 🎙️':'')));
       row.appendChild(el('span','pl',ps.s==='play'?'Nivel '+(ps.L|0):'en menú'));
       if(typeof ps.L==='number'&&ps.L>=1&&ps.L<=100){const b=btn('Ir a su nivel','follow:'+(ps.L|0),'mini');row.appendChild(b)}
       list.appendChild(row)}
@@ -1291,10 +1380,33 @@ function onlineScreen(){
   setOverlay(n);
 }
 let onlineSig='';
+const hasVoice=()=>typeof Voice!=='undefined';
+function onlineSigOf(){return netState+'|'+roomCode+'|'+myName+'|'+myColor+'|'+joining+'|'+netErr+'|'+(hasVoice()?[Voice.mic,Voice.muted,Voice.listen,Voice.needTap].join(''):'')+'|'+peersList.filter(p=>!p.sameTab).map(p=>{const s=p.presence||{};return p.peer+':'+cleanName(s.n)+':'+(s.c|0)+':'+s.s+':'+(s.L|0)+':'+(s.v|0)}).join(',')}
+function inviteLink(){return location.origin+location.pathname+'?sala='+roomCode}
+function hostPeer(){if(!room||!room.hostId)return null;return peersList.find(p=>p.peer===room.hostId)||null}
+let autoFollow=false;
+function checkFollow(){
+  if(!autoFollow||!room)return;
+  const h=hostPeer();if(!h||h.sameTab){if(room.isHost)autoFollow=false;return}
+  const ps=h.presence||{};
+  if(ps.s==='play'&&typeof ps.L==='number'&&ps.L>=1&&ps.L<=100&&(state==='online'||state==='levels'||state==='title'||state==='clear'||state==='over')){
+    autoFollow=false;carry={weapon:null,power:null};startLevel(ps.L|0);flash('¡Te uniste a la partida de '+cleanName(ps.n)+'!');
+  }
+}
+function refreshVoiceUI(){syncMicBtn();refreshOnline()}
+const micBtn=document.getElementById('micBtn');
+function syncMicBtn(){
+  const show=!!(room&&hasVoice()&&Voice.supported()&&ov.classList.contains('hidden'));
+  micBtn.style.display=show?'block':'none';
+  if(!show)return;
+  micBtn.textContent=!Voice.mic?'🎤':Voice.muted?'🔇':'🎙️';
+  micBtn.classList.toggle('on',Voice.mic&&!Voice.muted);micBtn.classList.toggle('muted',Voice.mic&&Voice.muted);
+}
+micBtn.addEventListener('click',()=>{if(!hasVoice())return;if(!Voice.mic)Voice.enableMic();else Voice.toggleMute();Voice.unlockAudio()});
 function typing(){const a=document.activeElement;return a&&a.tagName==='INPUT'}
 function refreshOnline(force){
   if(state!=='online')return;
-  const sig=netState+'|'+roomCode+'|'+myName+'|'+myColor+'|'+peersList.filter(p=>!p.sameTab).map(p=>{const s=p.presence||{};return p.peer+':'+cleanName(s.n)+':'+(s.c|0)+':'+s.s+':'+(s.L|0)}).join(',');
+  const sig=onlineSigOf();
   if(!force&&sig===onlineSig)return;
   if(typing()){setTimeout(()=>refreshOnline(force),800);return}
   onlineScreen();
@@ -1307,23 +1419,25 @@ async function joinRoom(code,host,tries){
   if(!roomNS){netErr='Online no disponible';onlineScreen();return}
   joining=true;onlineScreen();
   try{
-    if(room){try{await room.leave()}catch(e){}room=null}
+    if(room){if(hasVoice())Voice.reset();try{await room.leave()}catch(e){}room=null}
     room=await roomNS.join('dino-'+code,!!host);roomCode=code;
-    room.onPeers(ch=>{peersList=ch.peers.slice();for(const l of ch.left)peerView.delete(l.peer);refreshOnline()},
-      err=>{room=null;peersList=[];roomCode='';netErr=err&&err.code==='closed'?'La sala se cerró (quien la creó salió del juego)':'Se perdió la conexión con la sala';flash(netErr);if(state==='online')onlineScreen()});
+    room.onPeers(ch=>{peersList=ch.peers.slice();for(const l of ch.left)peerView.delete(l.peer);if(hasVoice())Voice.sync();checkFollow();refreshOnline()},
+      err=>{if(hasVoice())Voice.reset();room=null;peersList=[];roomCode='';autoFollow=false;syncMicBtn();netErr=err&&err.code==='closed'?'La sala se cerró (quien la creó salió del juego)':'Se perdió la conexión con la sala';flash(netErr);if(state==='online')onlineScreen()});
     lastPres='';netPresence();
+    if(room.hostId&&!room.isHost)autoFollow=true;
+    if(hasVoice())Voice.sync();
   }catch(e){room=null;const c=e&&e.code;
     if(c==='taken'&&host&&(tries||0)<4){joining=false;return joinRoom(randCode(),true,(tries||0)+1)}
     netErr=c==='not_permitted'?'No tenés permiso para salas online acá':c==='notfound'?'No encontré la sala '+code.toUpperCase()+'. Revisá el código y que quien la creó tenga el juego abierto.':c==='full'?'La sala está llena (máximo 8)':'No se pudo conectar. Revisá internet y probá de nuevo.'}
   joining=false;if(state==='online')onlineScreen();
 }
-async function leaveRoom(){if(room){try{await room.leave()}catch(e){}}room=null;peersList=[];peerView.clear();roomCode='';onlineScreen()}
+async function leaveRoom(){autoFollow=false;if(hasVoice())Voice.reset();if(room){try{await room.leave()}catch(e){}}room=null;peersList=[];peerView.clear();roomCode='';onlineScreen()}
 function netPresence(){
   if(!room)return;
   const p=player,playing=(state==='play'||state==='paused'||state==='dying')&&p;
   const o=playing?{n:myName,c:myColor,s:'play',L:levelNum,x:Math.round(p.x+p.w/2),y:Math.round(p.y+p.h),f:p.face,m:p.mounted?1:0,
-      pw:p.power||'',wp:p.weapon||'',fl:p.flyT>0?1:0,a:p.aim>0?1:0,g:p.onGround?1:0,wk:Math.round(p.walk*10)/10,e:eggs,mx:save.max}
-    :{n:myName,c:myColor,s:'menu',L:levelNum,e:eggs,mx:save.max};
+      pw:p.power||'',wp:p.weapon||'',v:hasVoice()&&Voice.mic&&!Voice.muted?1:0,fl:p.flyT>0?1:0,a:p.aim>0?1:0,g:p.onGround?1:0,wk:Math.round(p.walk*10)/10,e:eggs,mx:save.max}
+    :{n:myName,c:myColor,s:'menu',L:levelNum,e:eggs,mx:save.max,v:hasVoice()&&Voice.mic&&!Voice.muted?1:0};
   const js=JSON.stringify(o);if(js===lastPres)return;lastPres=js;
   room.presence(o).catch(()=>{});
 }
@@ -1344,12 +1458,12 @@ function drawPeers(){
 function drawNetHUD(){
   if(!room)return;
   const others=peersList.filter(p=>!p.sameTab);
-  const rows=[{n:myName,c:myColor,L:levelNum,e:eggs,me:true}].concat(others.map(p=>{const ps=p.presence||{};return{n:cleanName(ps.n),c:(ps.c|0)%6,L:ps.s==='play'?(ps.L|0):0,e:ps.e|0}})).slice(0,6);
-  const h=22+rows.length*17;
-  ctx.fillStyle='rgba(0,0,0,.35)';rr(W-196,56,188,h,10);ctx.fill();
-  txt('🌐 SALA '+roomCode.toUpperCase(),W-102,73,13,'#ffd23f');
-  rows.forEach((r,i)=>{const y=90+i*17;ctx.fillStyle=TUNICS[r.c];ell(W-184,y-4,5,5);ctx.fill();
-    txt((r.me?'★ ':'')+r.n,W-174,y,12,r.L===levelNum?'#fff':'#bbb','left');txt(r.L?'Nv'+r.L+' 🥚'+r.e:'menú',W-14,y,12,'#cfe','right')});
+  const rows=[{n:myName+(hasVoice()&&Voice.mic&&!Voice.muted?' 🎙':''),c:myColor,L:levelNum,e:eggs,me:true}].concat(others.map(p=>{const ps=p.presence||{};return{n:cleanName(ps.n)+(ps.v?' 🎙':''),c:(ps.c|0)%6,L:ps.s==='play'?(ps.L|0):0,e:ps.e|0}})).slice(0,6);
+  const h=22+rows.length*17,X=8,Y=68;
+  ctx.fillStyle='rgba(0,0,0,.35)';rr(X,Y,200,h,10);ctx.fill();
+  txt('🌐 SALA '+roomCode.toUpperCase(),X+100,Y+17,13,'#ffd23f');
+  rows.forEach((r,i)=>{const y=Y+34+i*17;ctx.fillStyle=TUNICS[r.c];ell(X+12,y-4,5,5);ctx.fill();
+    txt((r.me?'★ ':'')+r.n,X+22,y,12,r.L===levelNum?'#fff':'#bbb','left');txt(r.L?'Nv'+r.L+' 🥚'+r.e:'menú',X+192,y,12,'#cfe','right')});
 }
 
 /* ================= CONTROLES ================= */
